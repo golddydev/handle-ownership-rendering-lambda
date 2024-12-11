@@ -1,0 +1,38 @@
+{
+  "name": "handle-ownership-rendering-lambda",
+  "version": "1.0.0",
+  "description": "Ada Handles's Ownership and Rendering Check Lambda",
+  "engines": {
+    "node": ">=18.18",
+    "npm": ">=10.5"
+  },
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "npx tsx ./src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@blockfrost/blockfrost-js": "^5.7.0",
+    "@koralabs/kora-labs-common": "^5.1.19",
+    "axios": "^1.7.9",
+    "blockstore-core": "^5.0.2",
+    "cross-fetch": "^4.0.0",
+    "flatted": "^3.3.2",
+    "ipfs-unixfs-importer": "^15.3.1",
+    "it-all": "^3.0.6",
+    "lodash": "^4.17.21",
+    "multiformats": "^13.3.1",
+    "ts-res": "^1.3.0",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.17.13",
+    "@types/node": "^22.10.1",
+    "dotenv": "^16.4.7",
+    "typescript": "^5.7.2"
+  }
+}
