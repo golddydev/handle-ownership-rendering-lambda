@@ -18,14 +18,11 @@ export const fetchApi = async (
   const url = `${baseUrl}${endpoint}`;
   const apiKey = IS_PRODUCTION ? '' : HANDLE_ME_API_KEY;
 
-  const fetchHeaders = {
-    ...headers,
-    'User-Agent': KORA_USER_AGENT,
-    'api-key': apiKey,
-  };
-
+  const newHeaders = new Headers(headers);
+  newHeaders.append('User-Agent', KORA_USER_AGENT);
+  newHeaders.append('api-key', apiKey);
   return fetch(url, {
-    headers: fetchHeaders,
+    headers: newHeaders,
     ...rest,
   });
 };

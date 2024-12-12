@@ -1,10 +1,11 @@
 import {
+  AssetNameLabel,
   ICreatorDefaults,
   IHandle,
   IHandleSvgOptions,
   IPersonalization,
   IPersonalizedHandle,
-  ISubHandleSettings,
+  IReferenceToken,
   ScriptDetails,
 } from '@koralabs/kora-labs-common';
 import { Err, Ok, Result } from 'ts-res';
@@ -15,6 +16,8 @@ import { fetchApi } from './api.js';
 import { convertError } from '../errors/index.js';
 import { IMAGE_RENDERER_ENDPOINT, KORA_USER_AGENT } from '../configs/index.js';
 import fetch from 'cross-fetch';
+import { getAssetUtxo } from './blockfrost.js';
+import { getImageDataFromDatum } from './datum.js';
 
 export interface ScriptDetailsResponse {
   [address: string]: ScriptDetails;
@@ -25,6 +28,67 @@ export interface ProcessHandleImageResult {
   hash: string;
   svg_version: string;
 }
+
+const fetchHandle = async (
+  handle: string
+): Promise<Result<IHandle, string>> => {
+  try {
+    const params = {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    };
+    const response = await fetchApi(`/handles/${handle}`, params);
+    if (!response.ok) return Err(response.statusText);
+
+    const handleData = (await response.json()) as unknown as IHandle;
+    return Ok(handleData);
+  } catch (err) {
+    return Err(convertError(err));
+  }
+};
+
+const fetchPersonalization = async (
+  handle: string
+): Promise<Result<IPersonalization | undefined, string>> => {
+  try {
+    const params = {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    };
+    const response = await fetchApi(`/handles/${handle}/personalized`, params);
+    const personalizationData =
+      (await response.json()) as unknown as IPersonalization;
+    return Ok(personalizationData);
+  } catch (err) {
+    return Ok(undefined);
+  }
+};
+
+const fetchReferenceToken = async (
+  handle: string
+): Promise<Result<IReferenceToken | undefined, string>> => {
+  try {
+    const params = {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    };
+    const response = await fetchApi(
+      `/handles/${handle}/reference_token`,
+      params
+    );
+    const referenceTokenData =
+      (await response.json()) as unknown as IReferenceToken;
+    return Ok(referenceTokenData);
+  } catch (err) {
+    return Ok(undefined);
+  }
+};
 
 export const fetchPZScriptDetails = async (): Promise<
   Result<ScriptDetails[], string>
@@ -77,35 +141,7 @@ export const convertJsonToCbor = async (
   }
 };
 
-export const fetchPersonalizedHandle = async (
-  handle: string
-): Promise<Result<IPersonalizedHandle, string>> => {
-  try {
-    const params = {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    };
-    const [handleResponse, personalizedResponse] = await Promise.all([
-      fetchApi(`/handles/${handle}`, params),
-      fetchApi(`/handles/${handle}/personalized`, params),
-    ]);
-    if (!handleResponse.ok) return Err(handleResponse.statusText);
-
-    const handleData = (await handleResponse.json()) as unknown as IHandle;
-    const personalizedData =
-      (await personalizedResponse.json()) as unknown as IPersonalization;
-    return Ok({
-      ...handleData,
-      personalization: personalizedData,
-    } as IPersonalizedHandle);
-  } catch (err) {
-    return Err(convertError(err));
-  }
-};
-
-export const processHandleImage = async ({
+export const fetchRenderedHandleImage = async ({
   handle,
   options,
   disableDollarSymbol = false,
@@ -115,7 +151,7 @@ export const processHandleImage = async ({
   size?: number;
   options: IHandleSvgOptions;
   disableDollarSymbol?: boolean;
-}) => {
+}): Promise<Result<Blob, string>> => {
   try {
     const result = await fetch(`${IMAGE_RENDERER_ENDPOINT}/render`, {
       method: 'POST',
@@ -142,10 +178,70 @@ export const processHandleImage = async ({
   }
 };
 
-const blobToBase64 = (blob: Blob): Promise<string> => {
-  return new Promise((resolve, _) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.readAsDataURL(blob);
-  });
+export const fetchPersonalizedHandle = async (
+  handle: string
+): Promise<Result<IPersonalizedHandle, string>> => {
+  try {
+    const [
+      handleDataResult,
+      personalizationDataResult,
+      referenceTokenDataResult,
+    ] = await Promise.all([
+      fetchHandle(handle),
+      fetchPersonalization(handle),
+      fetchReferenceToken(handle),
+    ]);
+
+    if (!handleDataResult.ok)
+      return Err(`Fetching Handle Data: ${handleDataResult.error}`);
+    if (!personalizationDataResult.ok)
+      return Err(
+        `Fetching Personalization Data: ${personalizationDataResult.error}`
+      );
+    if (!referenceTokenDataResult.ok)
+      return Err(
+        `Fetching Reference Token Data: ${referenceTokenDataResult.error}`
+      );
+
+    return Ok({
+      ...handleDataResult.data,
+      personalization: personalizationDataResult.data,
+      reference_token: referenceTokenDataResult.data,
+    } as IPersonalizedHandle);
+  } catch (err) {
+    return Err(convertError(err));
+  }
+};
+
+export const fetchCreatorDefaults = async (
+  handleData: IHandle
+): Promise<Result<ICreatorDefaults | undefined, string>> => {
+  try {
+    if (handleData.bg_asset && handleData.bg_image) {
+      const policyId = handleData.bg_asset.slice(0, 56);
+      const hex = handleData.bg_asset.slice(56);
+      if (
+        hex.startsWith(AssetNameLabel.LBL_222) ||
+        hex.startsWith(AssetNameLabel.LBL_444)
+      ) {
+        const refAssetName = `${AssetNameLabel.LBL_100}${hex
+          .replace(AssetNameLabel.LBL_222, '')
+          .replace(AssetNameLabel.LBL_444, '')}`;
+        const refAssetId = `${policyId}${refAssetName}`;
+        const assetUtxoResult = await getAssetUtxo(refAssetId);
+        if (!assetUtxoResult.ok)
+          return Err(`Fetching Bg Asset UTxO: ${assetUtxoResult.error}`);
+        const assetDatum = assetUtxoResult.data.inline_datum;
+        if (!assetDatum) return Ok(undefined);
+
+        const imageDataResult = await getImageDataFromDatum(assetDatum);
+        if (!imageDataResult.ok)
+          return Err(`Getting Image Data from Datum: ${imageDataResult.error}`);
+        return Ok(imageDataResult.data.creatorDefaults);
+      }
+    }
+    return Ok(undefined);
+  } catch (err) {
+    return Ok(undefined);
+  }
 };

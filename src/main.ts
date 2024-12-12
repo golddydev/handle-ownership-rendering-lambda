@@ -11,13 +11,13 @@ import _ from 'lodash';
 import { Status } from './entrypoint.js';
 import { Monitor } from './monitor.js';
 import {
-  convertJsonToCbor,
-  createIPFSFromBytes,
+  createIpfsCidFromBlob,
   fetchAllHandleNames,
   fetchPersonalizedHandle,
   fetchPZScriptDetails,
   getAddressInfo,
-  processHandleImage,
+  fetchRenderedHandleImage,
+  fetchCreatorDefaults,
 } from './utils/index.js';
 
 const projectName = 'HandleOwnershipRenderingLambda';
@@ -28,6 +28,8 @@ const monitorHandle = async (
   handle: string,
   pzScriptValidatorHashes: string[]
 ): Promise<Result<void, string>> => {
+  if (!handle) return Ok();
+  console.log(`Start Checking "${handle}"`);
   const handleDataResult = await fetchPersonalizedHandle(handle);
   if (!handleDataResult.ok) {
     Logger.log({
@@ -41,51 +43,62 @@ const monitorHandle = async (
   const handleData = handleDataResult.data;
 
   /// get handle owner's info
-  // const resolvedAddress = handleData.resolved_addresses.ada;
-  // const addressInfoResult = await getAddressInfo(resolvedAddress);
-  // if (!addressInfoResult.ok) {
-  //   Logger.log({
-  //     message: `Fetching Address Info: ${addressInfoResult.error}`,
-  //     category: LogCategory.ERROR,
-  //     event: `${projectName}.monitorHandle.getAddressInfo`,
-  //   });
-  //   return Err(`Fetching Address Info: ${addressInfoResult.error}`);
-  // }
+  const resolvedAddress = handleData?.resolved_addresses?.ada;
+  if (!resolvedAddress) {
+    Logger.log({
+      message: `"${handle}" has no resolved address`,
+      category: LogCategory.ERROR,
+      event: `${projectName}.monitorHandle.NO_RESOLVED_ADDRESS`,
+    });
+    return Err(`"${handle}" has no resolved address`);
+  }
+
+  const addressInfoResult = await getAddressInfo(resolvedAddress);
+  if (!addressInfoResult.ok) {
+    Logger.log({
+      message: `Fetching Address Info: ${addressInfoResult.error}`,
+      category: LogCategory.ERROR,
+      event: `${projectName}.monitorHandle.getAddressInfo`,
+    });
+    return Err(`Fetching Address Info: ${addressInfoResult.error}`);
+  }
 
   /// check if handle owns PZ assets
-  // const addressBalance = addressInfoResult.data.amount;
-  // const { bg_asset: bgAssetUnit, pfp_asset: pfpAssetUnit } = handleData;
-  // if (
-  //   bgAssetUnit &&
-  //   !addressBalance.find((amount) => amount.unit == bgAssetUnit)
-  // ) {
-  //   /// reset handle - handle doesn't own Bg Asset
-  //   Logger.log({
-  //     message: `Handle "${handle}" doesn't own bg_asset`,
-  //     category: LogCategory.NOTIFY,
-  //     event: `${projectName}.monitorHandle.NOT_OWN_BG_ASSET`,
-  //   });
-  //   return Ok();
-  // }
+  const addressBalance = addressInfoResult.data.amount;
+  const { bg_asset: bgAssetUnit, pfp_asset: pfpAssetUnit } = handleData;
+  if (
+    bgAssetUnit &&
+    !addressBalance.find((amount) => amount.unit == bgAssetUnit)
+  ) {
+    /// handle doesn't own Bg Asset
+    Logger.log({
+      message: `Handle "${handle}" doesn't own bg_asset`,
+      category: LogCategory.NOTIFY,
+      event: `${projectName}.monitorHandle.NOT_OWN_BG_ASSET`,
+    });
+    /// TODO:
+    /// reset handle here
+    return Ok();
+  }
+  if (
+    pfpAssetUnit &&
+    !addressBalance.find((amount) => amount.unit == pfpAssetUnit)
+  ) {
+    /// handle doesn't own Pfp Asset
+    Logger.log({
+      message: `Handle "${handle}" doesn't own pfp_asset`,
+      category: LogCategory.NOTIFY,
+      event: `${projectName}.monitorHandle.NOT_OWN_PFP_ASSET`,
+    });
+    /// TODO:
+    /// reset handle here
+    return Ok();
+  }
 
-  // if (
-  //   pfpAssetUnit &&
-  //   !addressBalance.find((amount) => amount.unit == pfpAssetUnit)
-  // ) {
-  //   /// reset handle - handle doesn't own Pfp Asset
-  //   Logger.log({
-  //     message: `Handle "${handle}" doesn't own pfp_asset`,
-  //     category: LogCategory.NOTIFY,
-  //     event: `${projectName}.monitorHandle.NOT_OWN_PFP_ASSET`,
-  //   });
-  //   return Ok();
-  // }
-
-  /// <---- ASK about how to check validator is ours
   /// check if handle's PZ validator hash is same as ours
-  // const handleValidatorHash: string =
-  //   handleData.reference_token?.script?.validatorHash || '';
-  // if (pzScriptValidatorHashes.includes(handleValidatorHash)) return Ok();
+  const handleValidatorHash: string =
+    handleData.reference_token?.script?.validatorHash || '';
+  if (pzScriptValidatorHashes.includes(handleValidatorHash)) return Ok();
 
   /// otherwise check ipfs image
   const designer = handleData.personalization?.designer;
@@ -98,42 +111,68 @@ const monitorHandle = async (
     og_number: handleData.og_number,
   };
 
-  const processedHandleResult = await processHandleImage({
+  /// fetch creator default data if exist
+  const creatorDefaultsResult = await fetchCreatorDefaults(handleData);
+  if (!creatorDefaultsResult.ok) {
+    Logger.log({
+      message: `Fetching Creator Detaults: ${creatorDefaultsResult.error}`,
+      category: LogCategory.ERROR,
+      event: `${projectName}.monitorHandle.fetchCreatorDefaults`,
+    });
+    return Err(`Fetching Creator Detaults: ${creatorDefaultsResult.error}`);
+  }
+
+  const disableDollarSymbol =
+    creatorDefaultsResult.data?.custom_dollar_symbol === 1;
+
+  /// fetch rendered handle iamge
+  const renderedHandleImageResult = await fetchRenderedHandleImage({
     handle: handle,
     options: handleSvgOptions,
     size: 2048,
-    // disableDollarSymbol
+    disableDollarSymbol,
   });
-  if (!processedHandleResult.ok) {
+  if (!renderedHandleImageResult.ok) {
     Logger.log({
-      message: `Processing "${handle}" Image: ${processedHandleResult.error}`,
+      message: `Fetching Rendered "${handle}" Image: ${renderedHandleImageResult.error}`,
       category: LogCategory.ERROR,
       event: `${projectName}.monitorHandle.processHandleImage`,
     });
+    return Err(
+      `Fetching Rendered "${handle}" Image: ${renderedHandleImageResult.error}`
+    );
+  }
+  const renderedhandleImage = renderedHandleImageResult.data;
+
+  /// create ipfs cid from blob (predeterministically)
+  const cidResult = await createIpfsCidFromBlob(renderedhandleImage);
+  if (!cidResult.ok) {
+    Logger.log({
+      message: `Creating IPFS CID from "${handle}" Blob Image: ${cidResult.error}`,
+      category: LogCategory.ERROR,
+      event: `${projectName}.monitorHandle.createIpfsCidFromBlob`,
+    });
+    return Err(
+      `Creating IPFS CID from "${handle}" Blob Image: ${cidResult.error}`
+    );
+  }
+
+  /// check ipfs cid matches
+  const correctImage = `ipfs://${cidResult.data}`;
+  if (correctImage != handleData.image) {
+    /// handle doesn't own Pfp Asset
+    Logger.log({
+      message: `Handle "${handle}" image CID doesn't match. Wrong CID: ${handleData.image}, Correct CID: ${correctImage}`,
+      category: LogCategory.NOTIFY,
+      event: `${projectName}.monitorHandle.IMAGE_NOT_MATCH`,
+    });
+    /// TODO:
+    /// reset handle here
     return Ok();
   }
-  const processedHandle = processedHandleResult.data;
 
-  // if (!designer) return Ok();
-  // // const designerDatumCborResult = await convertJsonToCbor(designer);
-  // // if (!designerDatumCborResult.ok) {
-  // //   Logger.log({
-  // //     message: `Converting Designer to CBOR: ${designerDatumCborResult.error}`,
-  // //     category: LogCategory.ERROR,
-  // //     event: `${projectName}.monitorHandle.convertJsonToCbor`,
-  // //   });
-  // //   return Err(`Converting Designer to CBOR: ${designerDatumCborResult.error}`);
-  // // }
-
-  const cidResult = await createIPFSFromBytes(processedHandle);
-  console.log(cidResult);
+  console.log(`Checked "${handle}, this handle is good"`);
   return Ok();
-};
-
-const monitorHandles = async (handles: string[]): Promise<void> => {
-  const handlesData = await Promise.all(
-    handles.map((handle) => fetchPersonalizedHandle(handle))
-  );
 };
 
 const main = async (): Promise<Result<Status, string>> => {
@@ -182,13 +221,24 @@ const main = async (): Promise<Result<Status, string>> => {
   //   await asyncForEach(
   //     _.chunk(allHandleNamesResult.data, parallel),
   //     async (handles, index) => {
-  //       await monitorHandles(handles);
+  //       await Promise.all(
+  //         handles.map((handle) =>
+  //           monitorHandle(handle, pzScriptValidatorHashes)
+  //         )
+  //       );
   //     },
   //     asyncEachTime
   //   );
   // }
 
-  monitorHandle('golddydev', []);
+  const pzScriptDetails = await fetchPZScriptDetails();
+  if (!pzScriptDetails.ok)
+    return Err(`Fetching PZ Script Details: ${pzScriptDetails.error}`);
+  const pzScriptValidatorHashes = pzScriptDetails.data.map(
+    (script) => script.validatorHash
+  );
+  await monitorHandle('-123', pzScriptValidatorHashes);
+
   return Ok(Status.Success);
 };
 

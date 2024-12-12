@@ -1,13 +1,13 @@
 import { Err, Ok, Result } from 'ts-res';
-import fs from 'fs';
-import { convertError } from '../errors/index.js';
 import { base58btc } from 'multiformats/bases/base58';
 import { importer } from 'ipfs-unixfs-importer';
 import { MemoryBlockstore } from 'blockstore-core/memory';
 import all from 'it-all';
 import { CID } from 'multiformats';
 
-export const createIPFSFromBytes = async (
+import { convertError } from '../errors/index.js';
+
+export const createIpfsCidFromBlob = async (
   imageBlob: Blob
 ): Promise<Result<string, string>> => {
   try {
