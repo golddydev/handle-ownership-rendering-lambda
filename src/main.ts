@@ -178,66 +178,66 @@ const monitorHandle = async (
 const main = async (): Promise<Result<Status, string>> => {
   const monitor = new Monitor();
 
-  // while (!monitor.finished()) {
-  //   /// Latest Personalization Script Detail
-  //   const pzScriptDetails = await fetchPZScriptDetails();
-  //   if (!pzScriptDetails.ok) {
-  //     Logger.log({
-  //       message: `Fetching PZ Script Details: ${pzScriptDetails.error}`,
-  //       category: LogCategory.ERROR,
-  //       event: `${projectName}.fetchPZScriptDetails`,
-  //     });
-  //     await monitor.sleep(10, 20);
-  //     continue;
-  //   }
-  //   const pzScriptValidatorHashes = pzScriptDetails.data.map(
-  //     (script) => script.validatorHash
-  //   );
+  while (!monitor.finished()) {
+    /// Latest Personalization Script Detail
+    const pzScriptDetails = await fetchPZScriptDetails();
+    if (!pzScriptDetails.ok) {
+      Logger.log({
+        message: `Fetching PZ Script Details: ${pzScriptDetails.error}`,
+        category: LogCategory.ERROR,
+        event: `${projectName}.fetchPZScriptDetails`,
+      });
+      await monitor.sleep(10, 20);
+      continue;
+    }
+    const pzScriptValidatorHashes = pzScriptDetails.data.map(
+      (script) => script.validatorHash
+    );
 
-  //   /// fetch all handle names and calculate asyncEach time
-  //   const allHandleNamesResult = await fetchAllHandleNames();
-  //   if (!allHandleNamesResult.ok) {
-  //     Logger.log({
-  //       message: allHandleNamesResult.error,
-  //       category: LogCategory.ERROR,
-  //       event: `${projectName}.fetchAllHandleNames`,
-  //     });
-  //     await monitor.sleep(10, 20);
-  //     continue;
-  //   }
+    /// fetch all handle names and calculate asyncEach time
+    const allHandleNamesResult = await fetchAllHandleNames();
+    if (!allHandleNamesResult.ok) {
+      Logger.log({
+        message: allHandleNamesResult.error,
+        category: LogCategory.ERROR,
+        event: `${projectName}.fetchAllHandleNames`,
+      });
+      await monitor.sleep(10, 20);
+      continue;
+    }
 
-  //   const handlesTotalCount = allHandleNamesResult.data.length;
-  //   const parallelCount = Math.ceil(handlesTotalCount / parallel);
-  //   const asyncEachTime = Math.floor(
-  //     totalTimeInMilliseconds / Math.max(1, parallelCount)
-  //   );
+    const handlesTotalCount = allHandleNamesResult.data.length;
+    const parallelCount = Math.ceil(handlesTotalCount / parallel);
+    const asyncEachTime = Math.floor(
+      totalTimeInMilliseconds / Math.max(1, parallelCount)
+    );
 
-  //   Logger.log({
-  //     message: `Monitor ${parallel} Handles every ${asyncEachTime} ms`,
-  //     category: LogCategory.INFO,
-  //     event: `${projectName}.asyncEachTime`,
-  //   });
+    Logger.log({
+      message: `Monitor ${parallel} Handles every ${asyncEachTime} ms`,
+      category: LogCategory.INFO,
+      event: `${projectName}.asyncEachTime`,
+    });
 
-  //   await asyncForEach(
-  //     _.chunk(allHandleNamesResult.data, parallel),
-  //     async (handles, index) => {
-  //       await Promise.all(
-  //         handles.map((handle) =>
-  //           monitorHandle(handle, pzScriptValidatorHashes)
-  //         )
-  //       );
-  //     },
-  //     asyncEachTime
-  //   );
-  // }
+    await asyncForEach(
+      _.chunk(allHandleNamesResult.data, parallel),
+      async (handles, index) => {
+        await Promise.all(
+          handles.map((handle) =>
+            monitorHandle(handle, pzScriptValidatorHashes)
+          )
+        );
+      },
+      asyncEachTime
+    );
+  }
 
-  const pzScriptDetails = await fetchPZScriptDetails();
-  if (!pzScriptDetails.ok)
-    return Err(`Fetching PZ Script Details: ${pzScriptDetails.error}`);
-  const pzScriptValidatorHashes = pzScriptDetails.data.map(
-    (script) => script.validatorHash
-  );
-  await monitorHandle('-123', pzScriptValidatorHashes);
+  // const pzScriptDetails = await fetchPZScriptDetails();
+  // if (!pzScriptDetails.ok)
+  //   return Err(`Fetching PZ Script Details: ${pzScriptDetails.error}`);
+  // const pzScriptValidatorHashes = pzScriptDetails.data.map(
+  //   (script) => script.validatorHash
+  // );
+  // await monitorHandle('-123', pzScriptValidatorHashes);
 
   return Ok(Status.Success);
 };
