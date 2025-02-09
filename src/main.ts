@@ -24,7 +24,7 @@ import {
 } from './utils/index.js';
 
 const projectName = 'HandleOwnershipRenderingLambda';
-const totalTimeInMilliseconds = 1 * 86400000;
+const totalTimeInMilliseconds = 1 * 86400000; // monitors all in 1 day
 const parallel = 3; // monitor 3 handles at a time
 
 const monitorHandle = async (
