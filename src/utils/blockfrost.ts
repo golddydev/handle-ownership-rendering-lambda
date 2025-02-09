@@ -1,8 +1,8 @@
-import { BlockFrostAPI } from '@blockfrost/blockfrost-js';
-import { Err, Ok, Result } from 'ts-res';
+import { BlockFrostAPI } from "@blockfrost/blockfrost-js";
+import { Err, Ok, Result } from "ts-res";
 
-import { BLOCKFROST_API_KEY } from '../configs/index.js';
-import { convertError } from '../errors/index.js';
+import { BLOCKFROST_API_KEY } from "../configs/index.js";
+import { convertError } from "../errors/index.js";
 
 const blockfrostApi = new BlockFrostAPI({
   projectId: BLOCKFROST_API_KEY,
@@ -32,7 +32,7 @@ export const getLatestTransactionForAsset = async (
 ): Promise<Result<string, string>> => {
   try {
     const result = await blockfrostApi.assetsTransactions(assetId, {
-      order: 'desc',
+      order: "desc",
       count: 1,
     });
     return Ok(result[0].tx_hash);

@@ -1,11 +1,11 @@
-import { Err, Ok, Result } from 'ts-res';
-import { base58btc } from 'multiformats/bases/base58';
-import { importer } from 'ipfs-unixfs-importer';
-import { MemoryBlockstore } from 'blockstore-core/memory';
-import all from 'it-all';
-import { CID } from 'multiformats';
+import { MemoryBlockstore } from "blockstore-core/memory";
+import { importer } from "ipfs-unixfs-importer";
+import all from "it-all";
+import { CID } from "multiformats";
+import { base58btc } from "multiformats/bases/base58";
+import { Err, Ok, Result } from "ts-res";
 
-import { convertError } from '../errors/index.js';
+import { convertError } from "../errors/index.js";
 
 export const createIpfsCidFromBlob = async (
   imageBlob: Blob

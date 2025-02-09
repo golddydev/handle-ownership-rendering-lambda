@@ -17,7 +17,8 @@
   "license": "ISC",
   "dependencies": {
     "@blockfrost/blockfrost-js": "^5.7.0",
-    "@koralabs/kora-labs-common": "^5.1.19",
+    "@helios-lang/uplc": "^0.7.10",
+    "@koralabs/kora-labs-common": "^5.1.26",
     "axios": "^1.7.9",
     "blockstore-core": "^5.0.2",
     "cross-fetch": "^4.0.0",
@@ -30,9 +31,14 @@
     "tsx": "^4.19.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.19.0",
     "@types/lodash": "^4.17.13",
     "@types/node": "^22.10.1",
     "dotenv": "^16.4.7",
-    "typescript": "^5.7.2"
+    "eslint": "^9.19.0",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
+    "globals": "^15.14.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.23.0"
   }
 }

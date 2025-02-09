@@ -3,44 +3,71 @@ import {
   IHandleSvgOptions,
   LogCategory,
   Logger,
-  ScriptDetails,
 } from '@koralabs/kora-labs-common';
-import { Err, Ok, Result } from 'ts-res';
 import _ from 'lodash';
+import { Err, Ok, Result } from 'ts-res';
 
 import { Status } from './entrypoint.js';
 import { Monitor } from './monitor.js';
 import {
   createIpfsCidFromBlob,
+  fetchAdminCredentialsInPZSettings,
   fetchAllHandleNames,
-  fetchPersonalizedHandle,
+  fetchCustomDollarSymbol,
+  fetchHandle,
+  fetchPersonalization,
   fetchPZScriptDetails,
-  getAddressInfo,
+  fetchReferenceToken,
   fetchRenderedHandleImage,
-  fetchCreatorDefaults,
+  getAddressInfo,
+  remove0x,
 } from './utils/index.js';
 
 const projectName = 'HandleOwnershipRenderingLambda';
-const totalTimeInMilliseconds = 5 * 86400000;
-const parallel = 3; /// monitor 3 handles at a time
+const totalTimeInMilliseconds = 1 * 86400000;
+const parallel = 3; // monitor 3 handles at a time
 
 const monitorHandle = async (
   handle: string,
+  adminCreds: string[],
   pzScriptValidatorHashes: string[]
 ): Promise<Result<void, string>> => {
   if (!handle) return Ok();
-  console.log(`Start Checking "${handle}"`);
-  const handleDataResult = await fetchPersonalizedHandle(handle);
-  if (!handleDataResult.ok) {
+  const personalizationResult = await fetchPersonalization(handle);
+  if (!personalizationResult.ok) {
     Logger.log({
-      message: `Fetching Personalized Handle: ${handleDataResult.error}`,
+      message: `Fetching "${handle}" Personalization: ${personalizationResult.error}`,
       category: LogCategory.ERROR,
-      event: `${projectName}.monitorHandle.fetchPersonalizedHandle`,
+      event: `${projectName}.monitorHandle.fetchPersonalization`,
     });
-    return Err(`Fetching Personalized Handle: ${handleDataResult.error}`);
+    return Err(
+      `Fetching "${handle}" Personalization: ${personalizationResult.error}`
+    );
+  }
+  const personalizationData = personalizationResult.data;
+
+  // check validated_by
+  if (
+    personalizationData?.validated_by &&
+    adminCreds.some(
+      (cred) =>
+        cred.toLowerCase() ==
+        remove0x(personalizationData.validated_by).toLocaleLowerCase()
+    )
+  ) {
+    return Ok();
   }
 
-  const handleData = handleDataResult.data;
+  const handleResult = await fetchHandle(handle);
+  if (!handleResult.ok) {
+    Logger.log({
+      message: `Fetching "${handle}" Handle Data: ${handleResult.error}`,
+      category: LogCategory.ERROR,
+      event: `${projectName}.monitorHandle.fetchHandle`,
+    });
+    return Err(`Fetching "${handle}" Handle Data: ${handleResult.error}`);
+  }
+  const handleData = handleResult.data;
 
   /// get handle owner's info
   const resolvedAddress = handleData?.resolved_addresses?.ada;
@@ -56,11 +83,13 @@ const monitorHandle = async (
   const addressInfoResult = await getAddressInfo(resolvedAddress);
   if (!addressInfoResult.ok) {
     Logger.log({
-      message: `Fetching Address Info: ${addressInfoResult.error}`,
+      message: `Fetching ${resolvedAddress} Address Info: ${addressInfoResult.error}`,
       category: LogCategory.ERROR,
       event: `${projectName}.monitorHandle.getAddressInfo`,
     });
-    return Err(`Fetching Address Info: ${addressInfoResult.error}`);
+    return Err(
+      `Fetching ${resolvedAddress} Address Info: ${addressInfoResult.error}`
+    );
   }
 
   /// check if handle owns PZ assets
@@ -72,7 +101,7 @@ const monitorHandle = async (
   ) {
     /// handle doesn't own Bg Asset
     Logger.log({
-      message: `Handle "${handle}" doesn't own bg_asset`,
+      message: `Handle "${handle}" doesn't own bg_asset - ${bgAssetUnit}`,
       category: LogCategory.NOTIFY,
       event: `${projectName}.monitorHandle.NOT_OWN_BG_ASSET`,
     });
@@ -86,7 +115,7 @@ const monitorHandle = async (
   ) {
     /// handle doesn't own Pfp Asset
     Logger.log({
-      message: `Handle "${handle}" doesn't own pfp_asset`,
+      message: `Handle "${handle}" doesn't own pfp_asset - ${pfpAssetUnit}`,
       category: LogCategory.NOTIFY,
       event: `${projectName}.monitorHandle.NOT_OWN_PFP_ASSET`,
     });
@@ -95,13 +124,26 @@ const monitorHandle = async (
     return Ok();
   }
 
+  const referenceTokenResult = await fetchReferenceToken(handle);
+  if (!referenceTokenResult.ok) {
+    Logger.log({
+      message: `Fetching "${handle}" Reference Token Data: ${referenceTokenResult.error}`,
+      category: LogCategory.ERROR,
+      event: `${projectName}.monitorHandle.fetchHandle`,
+    });
+    return Err(
+      `Fetching "${handle}" Reference Token Data: ${referenceTokenResult.error}`
+    );
+  }
+  const referenceTokenData = referenceTokenResult.data;
+
   /// check if handle's PZ validator hash is same as ours
   const handleValidatorHash: string =
-    handleData.reference_token?.script?.validatorHash || '';
+    referenceTokenData?.script?.validatorHash || '';
   if (pzScriptValidatorHashes.includes(handleValidatorHash)) return Ok();
 
   /// otherwise check ipfs image
-  const designer = handleData.personalization?.designer;
+  const designer = personalizationData?.designer;
   const handleSvgOptions: IHandleSvgOptions = {
     ...(designer || {}),
     pfp_image: handleData.pfp_image,
@@ -112,18 +154,18 @@ const monitorHandle = async (
   };
 
   /// fetch creator default data if exist
-  const creatorDefaultsResult = await fetchCreatorDefaults(handleData);
-  if (!creatorDefaultsResult.ok) {
+  const customDollarSymbolResult = await fetchCustomDollarSymbol(handleData);
+  if (!customDollarSymbolResult.ok) {
     Logger.log({
-      message: `Fetching Creator Detaults: ${creatorDefaultsResult.error}`,
+      message: `Fetching "${handle}" Custom Dollar Symbol: ${customDollarSymbolResult.error}`,
       category: LogCategory.ERROR,
-      event: `${projectName}.monitorHandle.fetchCreatorDefaults`,
+      event: `${projectName}.monitorHandle.fetchIsCustomDollarSymbol`,
     });
-    return Err(`Fetching Creator Detaults: ${creatorDefaultsResult.error}`);
+    return Err(
+      `Fetching "${handle}" Custom Dollar Symbol: ${customDollarSymbolResult.error}`
+    );
   }
-
-  const disableDollarSymbol =
-    creatorDefaultsResult.data?.custom_dollar_symbol === 1;
+  const disableDollarSymbol = customDollarSymbolResult.data === 1n;
 
   /// fetch rendered handle iamge
   const renderedHandleImageResult = await fetchRenderedHandleImage({
@@ -179,6 +221,19 @@ const main = async (): Promise<Result<Status, string>> => {
   const monitor = new Monitor();
 
   while (!monitor.finished()) {
+    /// Valid Admin Credentials from PZ settings
+    const adminCredsResult = await fetchAdminCredentialsInPZSettings();
+    if (!adminCredsResult.ok) {
+      Logger.log({
+        message: `Fetching Admin Credentials In PZ Settings: ${adminCredsResult.error}`,
+        category: LogCategory.ERROR,
+        event: `${projectName}.fetchAdminCredentialsInPZSettings`,
+      });
+      await monitor.sleep(10, 20);
+      continue;
+    }
+    const adminCreds = adminCredsResult.data;
+
     /// Latest Personalization Script Detail
     const pzScriptDetails = await fetchPZScriptDetails();
     if (!pzScriptDetails.ok) {
@@ -220,10 +275,10 @@ const main = async (): Promise<Result<Status, string>> => {
 
     await asyncForEach(
       _.chunk(allHandleNamesResult.data, parallel),
-      async (handles, index) => {
+      async (handles) => {
         await Promise.all(
           handles.map((handle) =>
-            monitorHandle(handle, pzScriptValidatorHashes)
+            monitorHandle(handle, adminCreds, pzScriptValidatorHashes)
           )
         );
       },
@@ -237,7 +292,8 @@ const main = async (): Promise<Result<Status, string>> => {
   // const pzScriptValidatorHashes = pzScriptDetails.data.map(
   //   (script) => script.validatorHash
   // );
-  // await monitorHandle('-123', pzScriptValidatorHashes);
+  // const result = await monitorHandle('firingdev', pzScriptValidatorHashes);
+  // console.log(result);
 
   return Ok(Status.Success);
 };

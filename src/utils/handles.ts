@@ -1,6 +1,5 @@
 import {
   AssetNameLabel,
-  ICreatorDefaults,
   IHandle,
   IHandleSvgOptions,
   IPersonalization,
@@ -8,16 +7,22 @@ import {
   IReferenceToken,
   ScriptDetails,
 } from '@koralabs/kora-labs-common';
-import { Err, Ok, Result } from 'ts-res';
-import fs from 'fs/promises';
-
-import { fetchApi } from './api.js';
-
-import { convertError } from '../errors/index.js';
-import { IMAGE_RENDERER_ENDPOINT, KORA_USER_AGENT } from '../configs/index.js';
 import fetch from 'cross-fetch';
+import { Err, Ok, Result } from 'ts-res';
+
+import {
+  HANDLE_POLICY_ID,
+  IMAGE_RENDERER_ENDPOINT,
+  KORA_USER_AGENT,
+  PZ_SETTING_HANDLE_HEX_NAME,
+} from '../configs/index.js';
+import { convertError } from '../errors/index.js';
+import { fetchApi } from './api.js';
 import { getAssetUtxo } from './blockfrost.js';
-import { getImageDataFromDatum } from './datum.js';
+import {
+  getAdminCredentialsFromPZSettingsDatum,
+  getCustomDollarSymbolFromDatum,
+} from './datum.js';
 
 export interface ScriptDetailsResponse {
   [address: string]: ScriptDetails;
@@ -29,7 +34,7 @@ export interface ProcessHandleImageResult {
   svg_version: string;
 }
 
-const fetchHandle = async (
+export const fetchHandle = async (
   handle: string
 ): Promise<Result<IHandle, string>> => {
   try {
@@ -49,7 +54,7 @@ const fetchHandle = async (
   }
 };
 
-const fetchPersonalization = async (
+export const fetchPersonalization = async (
   handle: string
 ): Promise<Result<IPersonalization | undefined, string>> => {
   try {
@@ -63,12 +68,12 @@ const fetchPersonalization = async (
     const personalizationData =
       (await response.json()) as unknown as IPersonalization;
     return Ok(personalizationData);
-  } catch (err) {
+  } catch {
     return Ok(undefined);
   }
 };
 
-const fetchReferenceToken = async (
+export const fetchReferenceToken = async (
   handle: string
 ): Promise<Result<IReferenceToken | undefined, string>> => {
   try {
@@ -85,7 +90,7 @@ const fetchReferenceToken = async (
     const referenceTokenData =
       (await response.json()) as unknown as IReferenceToken;
     return Ok(referenceTokenData);
-  } catch (err) {
+  } catch {
     return Ok(undefined);
   }
 };
@@ -101,6 +106,21 @@ export const fetchPZScriptDetails = async (): Promise<
   } catch (err) {
     return Err(convertError(err));
   }
+};
+
+export const fetchAdminCredentialsInPZSettings = async (): Promise<
+  Result<string[], string>
+> => {
+  const pzSettingsAssetId = `${HANDLE_POLICY_ID}${PZ_SETTING_HANDLE_HEX_NAME}`;
+  const pzSettingsAssetUtxoResult = await getAssetUtxo(pzSettingsAssetId);
+  if (!pzSettingsAssetUtxoResult.ok)
+    return Err(pzSettingsAssetUtxoResult.error);
+
+  const datum = pzSettingsAssetUtxoResult.data.inline_datum;
+  if (!datum) return Err('PZ Settings Datum is null');
+  const adminCredsResult = getAdminCredentialsFromPZSettingsDatum(datum);
+  if (!adminCredsResult.ok) return Err(adminCredsResult.error);
+  return Ok(adminCredsResult.data);
 };
 
 export const fetchAllHandleNames = async (): Promise<
@@ -213,9 +233,9 @@ export const fetchPersonalizedHandle = async (
   }
 };
 
-export const fetchCreatorDefaults = async (
+export const fetchCustomDollarSymbol = async (
   handleData: IHandle
-): Promise<Result<ICreatorDefaults | undefined, string>> => {
+): Promise<Result<bigint | undefined, string>> => {
   try {
     if (handleData.bg_asset && handleData.bg_image) {
       const policyId = handleData.bg_asset.slice(0, 56);
@@ -234,14 +254,17 @@ export const fetchCreatorDefaults = async (
         const assetDatum = assetUtxoResult.data.inline_datum;
         if (!assetDatum) return Ok(undefined);
 
-        const imageDataResult = await getImageDataFromDatum(assetDatum);
-        if (!imageDataResult.ok)
-          return Err(`Getting Image Data from Datum: ${imageDataResult.error}`);
-        return Ok(imageDataResult.data.creatorDefaults);
+        const customDollarSymbolResult =
+          getCustomDollarSymbolFromDatum(assetDatum);
+        if (!customDollarSymbolResult.ok)
+          return Err(
+            `Getting Custom Dollar Symbol Data from Datum of BgAsset ${refAssetId}: ${customDollarSymbolResult.error}`
+          );
+        return Ok(customDollarSymbolResult.data);
       }
     }
     return Ok(undefined);
-  } catch (err) {
+  } catch {
     return Ok(undefined);
   }
 };
